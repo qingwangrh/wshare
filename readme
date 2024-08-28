@@ -1,0 +1,8 @@
+./svg_test.sh <-d devname> [-u lvunit ] [-r loop ] [-n lvnum ]
+ devname:The LNU device name 
+ lvunit: The size (Megabyte) of a lv or pool . optional. default is 16. 
+ loop : The loop test number. optional. default is 1 
+ lvnum: The number of lv/pool. optional. default is auto calc. 
+ if specify it , the final value is min(lvnum, auto) 
+
+ Example: ./svg_test.sh -d /dev/sdb -u 1024 -r 1 -n 2
