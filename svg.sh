@@ -48,9 +48,7 @@ svg_cmd() {
   echo "CMD: $@"
   eval "$@"
   _exit_on_error "Error on $@"
-  if [ $? -ne 0 ]; then
-    return 1
-  fi
+  
 }
 
 svg_create_vg() {
