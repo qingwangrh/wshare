@@ -5,11 +5,17 @@ GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 DISABLE_COLOR='\033[0m' # Disable Color
 
-wlog_file=/tmp/wlog.out
+[[ "$kubesan_test_log" == "" ]] && wlog_file=/tmp/wlog.out || wlog_file=$kubesan_test_log
+
+function wlog_set_log(){
+  wlog_file=$1
+  [[ "$2" == "1" ]] && echo "">$wlog_file 
+}
+
 function wlog_color() {
   printf "$1"
   shift
-  printf "$*\n" | tee -a ${wlog_file}
+  printf "$(date '+%m-%d %H:%M:%S') | $*\n" | tee -a ${wlog_file}
   printf "${DISABLE_COLOR}"
 }
 
@@ -40,24 +46,41 @@ function _warn_on_error() {
 }
 svg_env() {
   echo -e "
+   #init
    yum install -y lvm2-lockd sanlock
+   systemctl restart sanlock lvmlockd
+   
+   #create vg (init)
+       lvmdevices --devicesfile my-vg --adddev /dev/my-san-lun
 
+     # check if sanlock and lvmlockd are configured correctly
+       vgchange --devicesfile my-vg --lock-start
+
+     # make sure the vg is visible
+       vgs --devicesfile my-vg my-vg
+
+   # if reboot need recreate global lock
+   vgchange --lock-start
    "
 }
 svg_cmd() {
-  echo "CMD: $@"
+  start_time=$(date +%s) 
   eval "$@"
+  end_time=$(date +%s) 
+  wlog_info "CMD: $@ time: $((end_time - start_time))"
+  
   _exit_on_error "Error on $@"
   
 }
 
 svg_create_vg() {
   [[ "$1" == "" ]] || devname=$1
+  [[ "$2" == "" ]] && metasize=256 || metasize=$2 
   lunsize=$(lsblk -nd $devname -b | awk '{print $4}')
   ((lunsize = lunsize / 1024 / 1024))
   echo "Lun lunsize:$lunsize"
-  svg_cmd "pvcreate --config global/use_lvmlockd=0 --metadatasize 64m  $devname"
-  svg_cmd "vgcreate --shared $vgname $devname"
+  #svg_cmd "pvcreate --config global/use_lvmlockd=0 --metadatasize 64m  $devname"
+  svg_cmd "vgcreate --shared $vgname $devname --metadatasize $metasize"
   svg_cmd "lvmdevices --devicesfile $vgname --adddev $devname"
   svg_cmd "vgchange --devicesfile $vgname --lock-start"
   svg_cmd "vgs --devicesfile $vgname $vgname"
@@ -75,15 +98,22 @@ svg_calc() {
 }
 
 svg_test_lv_one_pool() {
+  local active
   svg_calc
   svg_cmd "lvcreate --type thin-pool -L ${poolsize}M -n $lvpoolname $vgname "
+  [[ "$1" == "" ]] && active=1 || active=$1
 
   for r in $(seq $repeat); do
     for i in $(seq $num); do
       iter_lvname="${lvname}$i"
       echo "repeat:$r $i/$num ${iter_lvname}"
       svg_cmd "lvcreate --type thin -V ${lvunit}M -n ${iter_lvname} --thinpool $lvpoolname $vgname"
-      svg_cmd "mkfs.ext4 /dev/${vgname}/${iter_lvname} > /dev/null"
+      if [[ "$active" == "1" ]];then
+        svg_cmd "mkfs.ext4 /dev/${vgname}/${iter_lvname} > /dev/null"
+      else
+        #deactive
+        svg_cmd "lvchange --activate n /dev/${vgname}/${iter_lvname}"
+      fi
     done
     svg_del_lv
   done
@@ -91,9 +121,9 @@ svg_test_lv_one_pool() {
 }
 
 svg_test_lv_multi_pool() {
-
+  local active
   svg_calc
-
+  [[ "$1" == "" ]] && active=1 || active=$1
   for r in $(seq $repeat); do
     for i in $(seq $num); do
       iter_lvname="${lvname}$i"
@@ -101,7 +131,13 @@ svg_test_lv_multi_pool() {
       echo "repeat:$r $i/$num $iter_lvpoolname ${iter_lvname}"
       svg_cmd "lvcreate --type thin-pool -L ${lvunit}M -n $iter_lvpoolname $vgname "
       svg_cmd "lvcreate --type thin -V ${lvunit}M -n ${iter_lvname} --thinpool ${iter_lvpoolname} $vgname"
-      svg_cmd "mkfs.ext4 /dev/${vgname}/${iter_lvname} > /dev/null"
+      #active
+      if [[ "$active" == "1" ]];then
+        svg_cmd "mkfs.ext4 /dev/${vgname}/${iter_lvname} > /dev/null"
+      else
+        #deactive
+        svg_cmd "lvchange --activate n /dev/${vgname}/${iter_lvname}"
+      fi
     done
     svg_del_lv
   done
@@ -131,7 +167,7 @@ svg_del_vg() {
       pvs | awk -v vgname="$vgname" '{if ($2 == vgname) { print $1 }} '
     )
     echo $dev
-    svg_cmd "vgremove -f $vgname"
+    svg_cmd "vgremove -ff $vgname"
     svg_cmd "rm -rf /etc/lvm/devices/$vgname"
   fi
 
