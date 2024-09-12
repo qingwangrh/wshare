@@ -1,8 +1,11 @@
-./svg_test.sh <-d devname> [-u lvunit ] [-r loop ] [-n lvnum ]
+./svg_test.sh <-d devname> [-u lvunit ] [-r loop ] [-n lvnum ] 
+ [-m metasize] [-a 1/0 active] [-l logfile]
  devname:The LNU device name 
  lvunit: The size (Megabyte) of a lv or pool . optional. default is 16. 
  loop : The loop test number. optional. default is 1 
  lvnum: The number of lv/pool. optional. default is auto calc. 
  if specify it , the final value is min(lvnum, auto) 
+ metasize: the meta size of vg, default 256M 
+ avtive: active flag of lv 1:active(default) 0 deactive logfile: logfile 
 
- Example: ./svg_test.sh -d /dev/sdb -u 1024 -r 1 -n 2
+Example: ./svg_test.sh -d /dev/sdb -u 1024 -r 1 -n 2 
